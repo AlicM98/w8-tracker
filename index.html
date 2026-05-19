@@ -50,7 +50,7 @@ const badges=[['🔥','Primeiro treino','Complete 1 treino',s=>doneCount()>=1],[
 function day(){let d=state.daily[today()]||{}; state.daily[today()]=d; return d}
 function save(){localStorage.setItem(STORE,JSON.stringify(state));syncCloud();render()}
 function load(){state=JSON.parse(localStorage.getItem(STORE)||'null')||empty();initCloud(); if(!state.user)document.getElementById('login').classList.remove('hide'); else if(!state.profile.startWeight)document.getElementById('onboard').classList.remove('hide'); render()}
-async function login(){let n=loginName.value.trim(),e=loginEmail.value.trim(); if(!n)return alert('Informe seu nome'); state.user={name:n,email:e||n.toLowerCase().replace(/\s+/g,'.')+'@local.w8'}; state.profile.name=n; document.getElementById('login').classList.add('hide'); await loadCloudState(); save(); if(!state.profile.startWeight)document.getElementById('onboard').classList.remove('hide')}
+function login(){let n=loginName.value.trim(),e=loginEmail.value.trim(); if(!n)return alert('Informe seu nome'); state.user={name:n,email:e||n.toLowerCase().replace(/\s+/g,'.')+'@local.w8'}; state.profile.name=n; document.getElementById('login').classList.add('hide'); save(); if(!state.profile.startWeight)document.getElementById('onboard').classList.remove('hide')}
 function finishOnboarding(){Object.assign(state.profile,{startWeight:obWeight.value,goalWeight:obGoal.value,level:obLevel.value,days:obDays.value,pref:obPref.value,dailySteps:Number(obSteps.value||8000)}); if(obWeight.value)state.weights.push({date:today(),value:Number(obWeight.value)}); document.getElementById('onboard').classList.add('hide'); save()}
 function showTab(id){document.querySelectorAll('.screen').forEach(s=>s.classList.add('hide'));document.getElementById(id).classList.remove('hide');document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===id));render()}
 function render(){if(!state)return; userChip.textContent=state.user?state.user.name:'Perfil'; renderWeeks(); renderTraining(); renderNutrition(); renderProfile(); renderStats(); renderBadges(); renderProgress(); renderHistory();}
@@ -63,7 +63,7 @@ function renderNutrition(){let d=day(); cups.innerHTML=Array.from({length:10},(_
 function toggleCheck(c){let d=day();d.checks=d.checks||[];d.checks=d.checks.includes(c)?d.checks.filter(x=>x!==c):[...d.checks,c];save()}
 function setToday(k,v){day()[k]=v;localStorage.setItem(STORE,JSON.stringify(state));syncCloud(false)}
 function quickSteps(){day().steps=(day().steps||0)+1000;save()}
-function renderProfile(){pName.value=state.profile.name||'';pStart.value=state.profile.startWeight||'';pGoal.value=state.profile.goalWeight||'';pSteps.value=state.profile.dailySteps||8000;sbUrl.value=state.sb?.url||localStorage.getItem(SB_URL_KEY)||'';sbKey.value=state.sb?.key||localStorage.getItem(SB_ANON_KEY)||'';sbStatus.textContent=supa?'✅ Nuvem conectada. Você não precisa colar de novo neste navegador.':'Sem nuvem ativa: salvando localmente.'}
+function renderProfile(){pName.value=state.profile.name||'';pStart.value=state.profile.startWeight||'';pGoal.value=state.profile.goalWeight||'';pSteps.value=state.profile.dailySteps||8000;sbUrl.value=state.sb.url||'';sbKey.value=state.sb.key||'';sbStatus.textContent=supa?'Sincronização pronta.':'Sem nuvem ativa: salvando localmente.'}
 function saveProfile(){Object.assign(state.profile,{name:pName.value,startWeight:pStart.value,goalWeight:pGoal.value,dailySteps:Number(pSteps.value||8000)});save()}
 function lastWeight(){return state.weights[state.weights.length-1]}
 function addWeight(){let v=Number(weightInput.value);if(!v)return alert('Informe um peso válido');state.weights.push({date:today(),value:v});state.history.unshift({date:today(),text:'Peso registrado: '+v+'kg'});weightInput.value='';save()}
@@ -78,67 +78,9 @@ function finishWorkout(j){let k=`${state.currentWeek}-${j}`; state.done[k]=true;
 function startTimer(){timerLeft=60;timerRun=true;clearInterval(timer);timer=setInterval(()=>{timerLeft--;updateTimerTxt();if(timerLeft<=0)stopTimer()},1000)}
 function stopTimer(){timerRun=false;clearInterval(timer);timer=null;timerLeft=60;updateTimerTxt()}
 function updateTimerTxt(){let el=document.getElementById('timerTxt');if(el)el.textContent='00:'+String(timerLeft).padStart(2,'0')}
-async function saveSupabaseConfig(){
-  const url=sbUrl.value.trim();
-  const key=sbKey.value.trim();
-  state.sb={url,key};
-  localStorage.setItem(SB_URL_KEY, url);
-  localStorage.setItem(SB_ANON_KEY, key);
-  initCloud();
-  await loadCloudState();
-  save();
-  alert(supa?'Supabase ativado. A partir de agora você só entra com o mesmo e-mail em outro celular/computador.':'Dados salvos, mas confira URL e chave.');
-}
-function initCloud(){
-  try{
-    const saved=loadSavedSupabaseConfig();
-    if(!state.sb)state.sb=saved;
-    if(!state.sb.url&&saved.url)state.sb.url=saved.url;
-    if(!state.sb.key&&saved.key)state.sb.key=saved.key;
-    if(state.sb?.url&&state.sb?.key&&window.supabase){
-      supa=window.supabase.createClient(state.sb.url,state.sb.key);
-      return;
-    }
-  }catch(e){}
-  supa=null;
-}
-async function syncCloud(renderAfter=true){
-  if(!supa||!state.user?.email)return;
-  try{
-    syncLabel.textContent='sincronizando...';
-    const payload={email:state.user.email,data:state,updated_at:new Date().toISOString()};
-    const found=await supa.from('users_data').select('id').eq('email',state.user.email).limit(1);
-    if(found.data&&found.data.length){
-      await supa.from('users_data').update(payload).eq('id',found.data[0].id);
-    }else{
-      await supa.from('users_data').insert(payload);
-    }
-    syncLabel.textContent='nuvem';
-  }catch(e){
-    console.warn('Falha ao sincronizar:',e);
-    syncLabel.textContent='local';
-  }
-}
-async function loadCloudState(){
-  if(!supa||!state.user?.email)return;
-  try{
-    syncLabel.textContent='baixando...';
-    const r=await supa.from('users_data').select('data,updated_at').eq('email',state.user.email).order('updated_at',{ascending:false}).limit(1);
-    if(r.data&&r.data.length&&r.data[0].data){
-      const localSb=state.sb;
-      const localUser=state.user;
-      state={...empty(),...r.data[0].data};
-      state.sb=localSb;
-      state.user=state.user||localUser;
-      localStorage.setItem(STORE,JSON.stringify(state));
-      syncLabel.textContent='nuvem';
-      render();
-    }
-  }catch(e){
-    console.warn('Falha ao baixar dados:',e);
-    syncLabel.textContent='local';
-  }
-}
+function saveSupabaseConfig(){state.sb={url:sbUrl.value.trim(),key:sbKey.value.trim()};initCloud();save();alert(supa?'Supabase ativado. Agora seus dados podem sincronizar com o mesmo e-mail.':'Dados salvos, mas confira URL e chave.')}
+function initCloud(){try{if(state.sb?.url&&state.sb?.key&&window.supabase){supa=window.supabase.createClient(state.sb.url,state.sb.key)}}catch(e){supa=null}}
+async function syncCloud(renderAfter=true){if(!supa||!state.user?.email)return;try{syncLabel.textContent='sincronizando...'; await supa.from('w8_progress').upsert({email:state.user.email,data:state,updated_at:new Date().toISOString()},{onConflict:'email'}); syncLabel.textContent='nuvem'}catch(e){syncLabel.textContent='local'}}
 function exportJSON(){download('w8-dados.json',JSON.stringify(state,null,2),'application/json')}
 function exportCSV(){let rows=['data,peso,passos,agua_litros,proteina'];Object.entries(state.daily).forEach(([date,d])=>rows.push([date,'',d.steps||0,((d.water||0)*.3).toFixed(1),d.protein||0].join(',')));state.weights.forEach(w=>rows.push([w.date,w.value,'','',''].join(',')));download('w8-dados.csv',rows.join('\n'),'text/csv')}
 function download(name,content,type){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([content],{type}));a.download=name;a.click()}
